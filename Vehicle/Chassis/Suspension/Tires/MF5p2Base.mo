@@ -5,14 +5,14 @@ model MF5p2Base
   import Modelica.Math.Vectors.norm;
   import Modelica.SIunits;
   
-  // Read tir file
-  parameter String tir_path = "/home/rhorvath/Documents/Github/VehicleDynamics/JSONs/Modified_Round_8_Hoosier_R25B_16x7p5_10_on_7in_12psi_PAC02_UM2.tir";
-  inner ExternData.TIRFile tir_file(fileName=tir_path)  annotation(
-      Placement(transformation(origin = {-90, -90}, extent = {{10, -10}, {-10, 10}})));
-  
+  // Read tire file
+//  parameter String tir_path = "/home/rhorvath/Documents/Github/VehicleDynamics/JSONs/Modified_Round_8_Hoosier_R25B_16x7p5_10_on_7in_12psi_PAC02_UM2.tir";
+//  inner ExternData.TIRFile tir_file(fileName=tir_path) annotation(
+//      Placement(transformation(origin = {-90, -90}, extent = {{10, -10}, {-10, 10}})));
   // Static angles
   parameter SIunits.Angle static_gamma;
   parameter SIunits.Angle static_alpha;
+  
   
   SIunits.Angle gamma = 0;
   SIunits.Force Fx;
@@ -37,6 +37,15 @@ model MF5p2Base
   Real kappa;
   
   Real v_x_wheel;
+  Real wheel_torque;
+  Real max_static_friction;
+  Real external_force[3];
+  Real external_torque[3];
+  
+  //couloumb-friction model parameters for slip ratio
+  //value for velocity at which the tire stops sticking to the GroundPhysics
+  parameter SIunits.Torque v_stick = 0.05;
+  parameter Real mu_s = 1.2;
   
   // Pure longitudinal slip coefficients
   parameter Real PCX1 = tir_file.getReal("PCX1", "LONGITUDINAL_COEFFICIENTS") annotation(
@@ -303,47 +312,60 @@ model MF5p2Base
     Placement(transformation(origin = {0, 10}, extent = {{-10, -10}, {10, 10}}, rotation = 90)));
   Modelica.Mechanics.MultiBody.Visualizers.VoluminousWheel voluminousWheel(rTire = R0, rRim = rim_R0, width = rim_width) annotation(
     Placement(transformation(origin = {-50, 30}, extent = {{10, -10}, {-10, 10}})));
-  Modelica.Mechanics.MultiBody.Forces.WorldForceAndTorque forceAndTorque(resolveInFrame = Modelica.Mechanics.MultiBody.Types.ResolveInFrameB.frame_resolve) annotation(
-    Placement(transformation(origin = {-30, -50}, extent = {{10, -10}, {-10, 10}}, rotation = 180)));
+  Modelica.Mechanics.MultiBody.Forces.WorldForceAndTorque forceAndTorque(resolveInFrame = Modelica.Mechanics.MultiBody.Types.ResolveInFrameB.world)  annotation(
+    Placement(transformation(origin = {-50, 84}, extent = {{10, -10}, {-10, 10}}, rotation = 180)));
   Modelica.Blocks.Sources.RealExpression tire_forces[3](y = {Fx, Fy, 0}) annotation(
-    Placement(transformation(origin = {-70, -44}, extent = {{-10, -10}, {10, 10}}, rotation = -0)));
+    Placement(transformation(origin = {-90, 90}, extent = {{-10, -10}, {10, 10}})));
   Modelica.Blocks.Sources.RealExpression tire_torques[3](y = {Mx, My, Mz}) annotation(
-    Placement(transformation(origin = {-70, -56}, extent = {{10, -10}, {-10, 10}}, rotation = -180)));
+    Placement(transformation(origin = {-90, 78}, extent = {{10, -10}, {-10, 10}}, rotation = -180)));
   Modelica.Mechanics.MultiBody.Joints.Revolute revolute(animation = false, n = {0, 1, 0}, useAxisFlange = false) annotation(
     Placement(transformation(origin = {-20, 30}, extent = {{-10, -10}, {10, 10}})));
-
-  Modelica.Mechanics.MultiBody.Parts.Body wheel_inertia(r_CM = {0, 0, 0}, m = 1)  annotation(
+  Modelica.Mechanics.MultiBody.Parts.Body wheel_inertia(r_CM = {0, 0, 0}, m = 1, I_22 = 10) annotation(
     Placement(transformation(origin = {-34, 50}, extent = {{-10, -10}, {10, 10}}, rotation = 90)));
 equation
   Fz = frame_a.f[3];
   wheel_vel = der(frame_a.r_0);
-  wheel_heading = Modelica.Mechanics.MultiBody.Frames.resolve2(frame_a.R, {1, 0, 0});
-//  alpha = Utilities.Math.Vector.angle_between(wheel_heading, wheel_vel, {0, 0, 1});
-  alpha = 0;
-  v_x_wheel = Utilities.Math.Vector.dot(wheel_vel, wheel_heading);
-  kappa = 0;
-//  if norm({wheel_vel[1], wheel_vel[2], 0}) < 1 then
-//    kappa = 0;
-//  else
-//    kappa = (der(revolute.phi)*R0 - v_x_wheel)/v_x_wheel;
-//  end if;
-  Fx = MF52.Fx_eval(Fz, alpha, kappa, gamma, PCX1, PDX1, PDX2, PDX3, PEX1, PEX2, PEX3, PEX4, PKX1, PKX2, PKX3, PHX1, PHX2, PVX1, PVX2, RBX1, RBX2, RCX1, REX1, REX2, RHX1, LFZO, LCX, LMUX, LEX, LKX, LHX, LVX, LXAL, LGAX, LCY, LMUY, LEY, LKY, LHY, LVY, LGAY, LKYG, LTR, LRES, LCZ, LGAZ, LYKA, LVYKA, LS, LSGKP, LSGAL, LGYR, LMX, LVMX, LMY, LIP, FNOMIN, R0);
-  Fy = MF52.Fy_eval(Fz, alpha, kappa, gamma, PCY1, PDY1, PDY2, PDY3, PEY1, PEY2, PEY3, PEY4, PKY1, PKY2, PKY3, PHY1, PHY2, PHY3, PVY1, PVY2, PVY3, PVY4, RBY1, RBY2, RBY3, RCY1, REY1, REY2, RHY1, RHY2, RVY1, RVY2, RVY3, RVY4, RVY5, RVY6, LFZO, LCX, LMUX, LEX, LKX, LHX, LVX, LXAL, LGAX, LCY, LMUY, LEY, LKY, LHY, LVY, LGAY, LKYG, LTR, LRES, LCZ, LGAZ, LYKA, LVYKA, LS, LSGKP, LSGAL, LGYR, LMX, LVMX, LMY, LIP, FNOMIN, R0);
-  Mx = MF52.Mx_eval(Fz, Fy, alpha, kappa, gamma, QSX1, QSX2, QSX3, LFZO, LCX, LMUX, LEX, LKX, LHX, LVX, LXAL, LGAX, LCY, LMUY, LEY, LKY, LHY, LVY, LGAY, LKYG, LTR, LRES, LCZ, LGAZ, LYKA, LVYKA, LS, LSGKP, LSGAL, LGYR, LMX, LVMX, LMY, LIP, FNOMIN, R0);
-  My = MF52.My_eval(Fz, alpha, kappa, gamma, QSY1, QSY2, QSY3, QSY4, PKX1, PKX2, PKX3, PHX1, PHX2, PVX1, PVX2, LFZO, LCX, LMUX, LEX, LKX, LHX, LVX, LXAL, LGAX, LCY, LMUY, LEY, LKY, LHY, LVY, LGAY, LKYG, LTR, LRES, LCZ, LGAZ, LYKA, LVYKA, LS, LSGKP, LSGAL, LGYR, LMX, LVMX, LMY, LIP, FNOMIN, R0);
-  (Mz, pneu_trail, pneu_scrub) = MF52.Mz_eval(Fz, Fx, Fy, alpha, kappa, gamma, QBZ1, QBZ2, QBZ3, QBZ4, QBZ5, QBZ9, QBZ10, QCZ1, QDZ1, QDZ2, QDZ3, QDZ4, QDZ6, QDZ7, QDZ8, QDZ9, QEZ1, QEZ2, QEZ3, QEZ4, QEZ5, QHZ1, QHZ2, QHZ3, QHZ4, SSZ1, SSZ2, SSZ3, SSZ4, PCY1, PDY1, PDY2, PDY3, PKY1, PKY2, PKY3, PHY1, PHY2, PHY3, PVY1, PVY2, PVY3, PVY4, RVY1, RVY2, RVY3, RVY4, RVY5, RVY6, PKX1, PKX2, PKX3, LFZO, LKX, LCY, LMUY, LKY, LHY, LVY, LGAY, LTR, LRES, LGAZ, LVYKA, LS, FNOMIN, R0);
+  wheel_heading = {1, 0, 0}; /*Modelica.Mechanics.MultiBody.Frames.resolve2(frame_a.R, {1, 0, 0});*/
+  alpha = Utilities.Math.Vector.angle_between(wheel_heading, wheel_vel, {0, 0, 1});
+  v_x_wheel = 0; /*Utilities.Math.Vector.dot(wheel_vel, wheel_heading);*/
+  
+  
+  wheel_torque = frame_a.t[2];
+  max_static_friction = mu_s * Fz;
+  
+  external_force = frame_b.f;
+  external_torque = frame_b.t;
+  
+    kappa = 0;
+    Fx = -external_force[1];
+    Fy = -external_force[2];
+    Mx = -external_torque[1];
+    My = -external_torque[2];
+    Mz = -external_torque[3];
+    pneu_trail = 0;
+    pneu_scrub = 0;
+  
+  
+//need to pull the wheel_torque from the frame
+//if norm({wheel_vel[1], wheel_vel[2], 0}) < 1 then
+//  kappa = 0;
+//else
+//  kappa = ((der(revolute.phi))*R0 - v_x_wheel)/v_x_wheel;
+//end if;
+
+//  Fx = MF52.Fx_eval(Fz, alpha, kappa, gamma, PCX1, PDX1, PDX2, PDX3, PEX1, PEX2, PEX3, PEX4, PKX1, PKX2, PKX3, PHX1, PHX2, PVX1, PVX2, RBX1, RBX2, RCX1, REX1, REX2, RHX1, LFZO, LCX, LMUX, LEX, LKX, LHX, LVX, LXAL, LGAX, LCY, LMUY, LEY, LKY, LHY, LVY, LGAY, LKYG, LTR, LRES, LCZ, LGAZ, LYKA, LVYKA, LS, LSGKP, LSGAL, LGYR, LMX, LVMX, LMY, LIP, FNOMIN, R0);
+//  Fy = MF52.Fy_eval(Fz, alpha, kappa, gamma, PCY1, PDY1, PDY2, PDY3, PEY1, PEY2, PEY3, PEY4, PKY1, PKY2, PKY3, PHY1, PHY2, PHY3, PVY1, PVY2, PVY3, PVY4, RBY1, RBY2, RBY3, RCY1, REY1, REY2, RHY1, RHY2, RVY1, RVY2, RVY3, RVY4, RVY5, RVY6, LFZO, LCX, LMUX, LEX, LKX, LHX, LVX, LXAL, LGAX, LCY, LMUY, LEY, LKY, LHY, LVY, LGAY, LKYG, LTR, LRES, LCZ, LGAZ, LYKA, LVYKA, LS, LSGKP, LSGAL, LGYR, LMX, LVMX, LMY, LIP, FNOMIN, R0);
+//  Mx = MF52.Mx_eval(Fz, Fy, alpha, kappa, gamma, QSX1, QSX2, QSX3, LFZO, LCX, LMUX, LEX, LKX, LHX, LVX, LXAL, LGAX, LCY, LMUY, LEY, LKY, LHY, LVY, LGAY, LKYG, LTR, LRES, LCZ, LGAZ, LYKA, LVYKA, LS, LSGKP, LSGAL, LGYR, LMX, LVMX, LMY, LIP, FNOMIN, R0);
+//  My = MF52.My_eval(Fz, alpha, kappa, gamma, QSY1, QSY2, QSY3, QSY4, PKX1, PKX2, PKX3, PHX1, PHX2, PVX1, PVX2, LFZO, LCX, LMUX, LEX, LKX, LHX, LVX, LXAL, LGAX, LCY, LMUY, LEY, LKY, LHY, LVY, LGAY, LKYG, LTR, LRES, LCZ, LGAZ, LYKA, LVYKA, LS, LSGKP, LSGAL, LGYR, LMX, LVMX, LMY, LIP, FNOMIN, R0);
+//  (Mz, pneu_trail, pneu_scrub) = MF52.Mz_eval(Fz, Fx, Fy, alpha, kappa, gamma, QBZ1, QBZ2, QBZ3, QBZ4, QBZ5, QBZ9, QBZ10, QCZ1, QDZ1, QDZ2, QDZ3, QDZ4, QDZ6, QDZ7, QDZ8, QDZ9, QEZ1, QEZ2, QEZ3, QEZ4, QEZ5, QHZ1, QHZ2, QHZ3, QHZ4, SSZ1, SSZ2, SSZ3, SSZ4, PCY1, PDY1, PDY2, PDY3, PKY1, PKY2, PKY3, PHY1, PHY2, PHY3, PVY1, PVY2, PVY3, PVY4, RVY1, RVY2, RVY3, RVY4, RVY5, RVY6, PKX1, PKX2, PKX3, LFZO, LKX, LCY, LMUY, LKY, LHY, LVY, LGAY, LTR, LRES, LGAZ, LVYKA, LS, FNOMIN, R0);
   connect(frame_a, set_toe.frame_a) annotation(
     Line(points = {{0, -100}, {0, -40}}));
   connect(set_toe.frame_b, fixedTranslation.frame_a) annotation(
     Line(points = {{0, -20}, {0, 0}}, color = {95, 95, 95}));
-  connect(forceAndTorque.frame_b, frame_a) annotation(
-    Line(points = {{-20, -50}, {0, -50}, {0, -100}}, color = {95, 95, 95}));
-  connect(forceAndTorque.frame_resolve, frame_a) annotation(
-    Line(points = {{-30, -60}, {-30, -70}, {0, -70}, {0, -100}}, color = {95, 95, 95}));
   connect(tire_forces.y, forceAndTorque.force) annotation(
-    Line(points = {{-58, -44}, {-42, -44}}, color = {0, 0, 127}, thickness = 0.5));
+    Line(points = {{-79, 90}, {-63, 90}}, color = {0, 0, 127}, thickness = 0.5));
   connect(tire_torques.y, forceAndTorque.torque) annotation(
-    Line(points = {{-58, -56}, {-42, -56}}, color = {0, 0, 127}, thickness = 0.5));
+    Line(points = {{-79, 78}, {-63, 78}}, color = {0, 0, 127}, thickness = 0.5));
   connect(voluminousWheel.frame_a, revolute.frame_a) annotation(
     Line(points = {{-40, 30}, {-30, 30}}, color = {95, 95, 95}));
   connect(revolute.frame_b, fixedTranslation.frame_b) annotation(
@@ -354,4 +376,6 @@ equation
     Line(points = {{-34, 40}, {-34, 30}, {-30, 30}}, color = {95, 95, 95}));
   connect(corner_frame, frame_a) annotation(
     Line(points = {{0, 100}, {0, 60}, {60, 60}, {60, -70}, {0, -70}, {0, -100}}));
+  connect(forceAndTorque.frame_b, fixedTranslation.frame_b) annotation(
+    Line(points = {{-40, 84}, {0, 84}, {0, 20}}, color = {95, 95, 95}));
 end MF5p2Base;
